@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Dec 12 15:18:37 2024
+Script to inspect the intensity of the MRF data for both reference and low-quality reconstructions.
+These values serve as reference for data normalization required by the diffusion model.
 
-@author: pm15334
+@author: Perla Mayo
 """
 import os
 import torch
 import numpy as np
 
-tsmi_paths = {'tsmi_ref' : r'/home/pm15334/data/mrfscans/3DTGAS/synthesized_tsmi/',
-              'tsmi_adjoint' : r'/home/pm15334/data/mrfscans/3DTGAS/adjoint_tsmi/'
+tsmi_paths = {'tsmi_ref' : r'./datasets/MRF/synthesized_tsmi/',
+              'tsmi_adjoint' : r'./datasets/MRF/adjoint_tsmi/'
               }
 use_mask = True
 cut = 3
@@ -65,9 +66,9 @@ ALL - 99 Percentile 0.000007, 0.000
 """
 
 # Checking reference and adjoint
-tsmi_reference_path = r'/home/pm15334/data/mrfscans/3DTGAS/synthesized_tsmi'
-tsmi_adjoint_path = '/home/pm15334/data/mrfscans/3DTGAS/adjoint_tsmi'
-tsmi_png_path = '/home/pm15334/data/mrfscans/3DTGAS/tsmi_png'
+tsmi_reference_path = r'./datasets/MRF/synthesized_tsmi'
+tsmi_adjoint_path = './datasets/MRF/adjoint_tsmi'
+tsmi_png_path = './datasets/MRF/tsmi_png'
 
 os.makedirs(tsmi_png_path, exist_ok=True)
 

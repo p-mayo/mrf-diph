@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sun Jun 23 21:12:41 2024
+Script to create figures to inspect data qualitatively and quantitatively.
 
-@author: pm15334
+@author: PM
 """
 
 import os

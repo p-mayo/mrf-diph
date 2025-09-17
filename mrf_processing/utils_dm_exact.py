@@ -1,6 +1,6 @@
-import numpy as np
 import torch
 import scipy.io as sio
+
 
 class dict_match:
     def __init__(self, param, device='cpu'):

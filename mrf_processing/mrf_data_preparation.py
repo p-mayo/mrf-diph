@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Aug 31 12:46:27 2023
+Script to prepare data from Deli-CS for training and sampling of MRF-DiPh.
+For more information abou Deli-CS data please check https://github.com/SetsompopLab/deli-cs
 
-@author: pm15334
+@author: PM
 """
 
 import os
@@ -16,21 +17,20 @@ import utils
 
 from mrf_processing.utils_acquisition2d import NUFFT_Pytorch, load_traj_basis_dcf_2dscans
 
-deli_slices = {
-    256 : [[140, 170], # 0
-           [137, 167], # 1
-           [140, 170], # 2
-           [145, 175], # 3
-           [140, 170], # 4
-           [152, 182], # 5
-           [150, 180], # 6
-           [155, 185], # 7
-           [140, 170], # 8
-           [150, 180], # 9
-           [140, 170], # 10
-           [150, 180], # 11
-           ],
-}
+# Selecting ranges of slices to use for training
+# We used the following slices from each volume:
+#  0 - [140, 170]
+#  1 - [137, 167]
+#  2 - [140, 170]
+#  3 - [145, 175]
+#  4 - [140, 170]
+#  5 - [152, 182]
+#  6 - [150, 180]
+#  7 - [155, 185]
+#  8 - [140, 170]
+#  9 - [150, 180]
+# 10 - [140, 170]
+# 11 - [150, 180]
 
 def load_data(data_path, to_tensor=True, simplify_cells=True):
     try:
@@ -57,39 +57,32 @@ def numpy2tensor(data):
     return data
 
 
-def get_tsmis_reference_from_qmaps(dict_path, qmaps_dir, tsmi_output_dir, qmaps_output_dir, k_svd=5, fisp_cut=0,
+def get_tsmis_reference_from_qmaps(dict_path, qmaps_dir, tsmi_output_dir, k_svd=5, fisp_cut=0,
                                    mask_threshold = 0.):
     os.makedirs(tsmi_output_dir, exist_ok=True)
-    os.makedirs(qmaps_output_dir, exist_ok=True)
+    qmaps_files = os.listdir(qmaps_dir)
 
-    for mtx in deli_slices.keys():
-        for ri, slice_range in enumerate(deli_slices[mtx]):
-            print(f'Processing mtx{mtx} vol {ri}\n\tSlices ', end='')
-            f = f'pyrecon_mtx{mtx}_mrfadmm_bis_dm_lam1.00e-04_it5_cgit10_vol{ri}'
-            qmaps = load_data(os.path.join(qmaps_dir, f'{f}.mat'))['out']['q_rec']
-            mask = torch.abs(qmaps[2] + 1j*qmaps[3]) > mask_threshold
+    for qmaps_file in qmaps_files:
+        if 'mask' in qmaps_file:
+            continue
+        print(f'Processing {qmaps_file}')
+        qmaps = torch.from_numpy(np.load(os.path.join(qmaps_dir, qmaps_file))['qmaps'])
+        mask = torch.abs(qmaps[2] + 1j*qmaps[3]) > mask_threshold
 
-            qmaps = qmaps[:, :, 13:-13, 13:-13]
-            mask = mask[ :, 13:-13, 13:-13]
+        tsmi_ref = utils.qmaps_to_tsmis_kdtree_svd(qmaps.unsqueeze(0), dict_path=dict_path)
+        if tsmi_ref.shape[1] > k_svd:
+            tsmi_ref = tsmi_ref[:, :k_svd, :, :]
 
-            for s, slice_num in enumerate(range(slice_range[0], slice_range[1])):
-                print(f'{slice_num + 1}, ', end='')
-                tsmi_ref = utils.qmaps_to_tsmis_kdtree_svd(qmaps[:, slice_num, :, :].unsqueeze(0), dict_path=dict_path)
-                if tsmi_ref.shape[1] > k_svd:
-                    tsmi_ref = tsmi_ref[:, :k_svd, :, :]
+        fname = qmaps_file.replace('qmaps', 'tsmi_ref')
+        output_file = os.path.join(tsmi_output_dir, f'{fname}_cut{fisp_cut}.npz')
+        print('\tTSMI saved to', output_file)
+        np.savez(output_file, tsmi_ref=tsmi_ref)
 
-                fname = f'qmaps_vol{ri}_slice{s}'
-                output_file = os.path.join(qmaps_output_dir, f'{fname}.npz')
-                np.savez(output_file, qmaps=qmaps[:, slice_num, :, :].squeeze())
-
-                fname = fname.replace('qmaps', 'tsmi_ref')
-                output_file = os.path.join(tsmi_output_dir, f'{fname}_cut{fisp_cut}.npz')
-                np.savez(output_file, tsmi_ref=tsmi_ref)
-
-                fname = fname.replace('tsmi_ref', 'mask')
-                output_file = os.path.join(qmaps_output_dir, f'{fname}_th{mask_threshold}.npz')
-                np.savez(output_file, mask=mask[slice_num, :, :].squeeze())
-            print()
+        fname = qmaps_file.replace('qmaps', 'mask')
+        output_file = os.path.join(qmaps_dir, f'{fname}_th{mask_threshold}.npz')
+        print('\tMask saved to', output_file)
+        np.savez(output_file, mask=mask.squeeze())
+        print()
 
 def get_kspace_from_reference_tsmi(tsmi_dir, kspace_output_dir, cut, device, nufft_operator):
     tsmi_paths = glob.glob(os.path.join(tsmi_dir, f'*_cut{cut}.npz'))
@@ -100,7 +93,6 @@ def get_kspace_from_reference_tsmi(tsmi_dir, kspace_output_dir, cut, device, nuf
         tsmi = tsmi.to(device)
 
         kspace = nufft_operator.fwd(tsmi.to(device), sens=None)
-        print(kspace.shape, torch.view_as_real(kspace).max())
         kspace = kspace + torch.normal(0, 0.0003, kspace.shape).to(device)
         fname = os.path.split(tsmi_path)[-1]
         fname = fname.replace('tsmi_ref_', '')
@@ -116,7 +108,6 @@ def get_tsmis_adjoint_svd_from_kspace(kspace_input_dir, adjoint_output_dir, devi
         print(f'Processing {kspace_path}')
         y = torch.from_numpy(np.load(kspace_path)['y']).to(device)
         tsmi_adjoint = nufft_operator.adj(y, sens=None)
-        print(tsmi_adjoint.shape)
         fname = os.path.split(kspace_path)[-1]
         output_file = os.path.join(adjoint_output_dir, fname.replace('ksp_', 'adjoint_'))
         np.savez(output_file, tsmi_adjoint=tsmi_adjoint.cpu().numpy())
@@ -130,13 +121,12 @@ if __name__ == '__main__':
     k_svd = 5
 
     dict_path = f'./mrf_processing/SVD_dict_FISP_cut{fisp_cut}.mat'
-    qmaps_output_dir = r'./datasets/Deli-CS/qmaps'
+    qmaps_dir = r'./datasets/Deli-CS/qmaps'
     tsmi_output_dir = r'./datasets/Deli-CS/reference_tsmi'
     kspace_output_dir = r'./datasets/Deli-CS/synthesized_ksp'
     adjoint_output_dir = r'./datasets/Deli-CS/adjoint_tsmi'
-    qmaps_dir = r'' # Specify path to Deli-CS data!!!!
-    # get_tsmis_reference_from_qmaps(dict_path, qmaps_dir, tsmi_output_dir, qmaps_output_dir, k_svd=k_svd, fisp_cut=fisp_cut,
-    #                     mask_threshold=0.006)
+    get_tsmis_reference_from_qmaps(dict_path, qmaps_dir, tsmi_output_dir, k_svd=k_svd, fisp_cut=fisp_cut,
+                        mask_threshold=0.006)
 
     acquisition = 'fisp'
     ktraj, dcf, basis, time_frames, num_samples, im_shape, dictionary_path = load_traj_basis_dcf_2dscans(acquisition,

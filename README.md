@@ -1,4 +1,4 @@
-# MRF-Diph: Phisics informed guided diffusion for accelerated multi-parametric MRI reconstruction
+# MRF-DiPh: Physics informed guided diffusion for accelerated multi-parametric MRI reconstruction
 _By Perla Mayo, Carolin M. Pirkl, Alin Achim, Bjoern Menze and Mohammad Golbabaee_
 
 This repository contains the source code for the work titled
@@ -75,8 +75,8 @@ mrf-diph
 |       └-- model100000.pt
 |       └-- opt100000.pt
 └-- mrf_processing
-|   └-- delics_data_preparation.py
-|   └-- delics_intensity_inspection.py
+|   └-- mrf_data_preparation.py
+|   └-- mrf_intensity_inspection.py
 |   └-- utils.py
 |   └-- utils_acquisition2d.py
 |   └-- utils_dm_exact.py
@@ -97,7 +97,7 @@ mrf-diph
 
 ---
 ## 2. The MRF-DiPh environment <a name='environment'/>
-The explicit list of the packages in the final conda environment is provided in [mrf-diph-env.txt](./mrf-diph-env.txt),
+The explicit list of the packages in the final conda environment is provided in [./mrf-diph-env.txt](./mrf-diph-env.txt),
 in hopes to facilitate reproducibility of this work.
 
 ---
@@ -105,21 +105,20 @@ in hopes to facilitate reproducibility of this work.
 The data used for the published work is confidential and therefore cannot
 be shared, however, we provide a demo using the publicly available dataset
 from [Deli-CS](https://pmc.ncbi.nlm.nih.gov/articles/PMC11914339/). 
-The demo also contains the code used to generate the reference Q-Maps 
-as well as the low-quality reconstructions from simulated highly-accelerated
-k-space data. The code to do this is provided under
-[mrf-diph/mrf_processing/delics_data_preparation.py](https://github.com/p-mayo/mrf-diph/mrf_processing/delics_data_preparation.py).
+We provide the reference Q-Maps and the source code required to compute reference
+TSMI from them, as well as the low-quality reconstructions from highly-accelerated
+k-space data, simulated from reference TSMI. The code to do this is provided under
+[./mrf_processing/delics_data_preparation.py](https://github.com/p-mayo/mrf-diph/mrf_processing/delics_data_preparation.py).
 It requires the following data files:
 
 * **path to qmaps** - path to folder containing reference Q-Maps
 (T1, T2, complex PD), these are the input and main source for the 
-synthesized data required by MRF-DiPh. Masks required for validation
-are also contained in this directory.
+synthesized data required by MRF-DiPh. 
 * **SVD dictionary** -- for SVD compression for the required # of timeframes.
 * **k-space trajectory and DCF** -- required by the adjoint and
 forward operators.
 
-Our script organizes the data in the following directories:
+Our script organizes the data in the following directories (which are created if they don't exist):
 
 * **reference_tsmi** --SVD-compressed TSMI, simulated from reference Q-Maps. 
 Relevant function used in script: get_tsmis_reference_from_qmaps()
@@ -130,9 +129,14 @@ Relevant function used in script: get_kspace_from_reference_tsmi()
 * **adjoint_tsmi** -- output of adjoint operator on synthesized k-space.
 Relevant function used in script: get_tsmis_adjoint_svd_from_kspace()
 
-We also provide the code used for the forward and adjoint operators as
-well as the code for Dictionary Matching used at sampling step for
-estimation of Q-Maps from SVD-compressed TSMI.
+This script also produces masks based on proton density information, which are saved 
+in the same directory where the qmaps are. 
+
+Other tools that we provide are:
+* Code used for the forward and adjoint operators
+* Code for Dictionary Matching (CM) used at sampling step for estimation of Q-Maps from SVD-compressed TSMI.
+* Code to inspect inensity in both reference and corrupted TSMIs, which serve as guide for establishing
+the normalization factor required by the mrf_dataset_2d.py script.
 
 ### 3.1 The Dataset Script File <a name='dataset-script'/>
 The dataset script file is found under [mrf-diph/guided_diffusion/mrf_image_dataset_2d.py](https://github.com/p-mayo/mrf-diph/guided_diffusion/mrf_image_dataset_2d.py),
@@ -168,7 +172,9 @@ Additional parameters can be found in the relevant bash script.
 ## 5. Sampling  <a name='sampling'/>
 Sampling scripts, both python and bash, are provided in the repository.
 Like training, the parameters used for MRF-DiPh and the demo
-are provided to facilitate reproducibility of MRF-DiPh. Make sure to indicate
+are provided to facilitate reproducibility of MRF-DiPh, however, we must emphasize
+that **<ins>these parameters are data dependant and the user should
+tweak them for their dataset<ins/>**. Make sure to indicate
 whether condition is to be used or not by specifying the parameter,
 these should match those used during training:
 
@@ -240,7 +246,7 @@ in the reconstruction. This is better visualized in the below plots.
 ![Reconstruction errors reported during sampling](./evaluations/lambda_vs_error_0.5.png)
 
 ### Conditional Sampling <a name='results-conditional'/>
-![Lambda = 0 (gamma fixed to 0.01)](./evaluations/vol0.5_conditional_lambda0.0.png)
+![Lambda = 0 (gamma fixed to 0.01)](./evaluations/vol0.5_conditional_lambda0.0.png) 
 ![Lambda = 1e-8](./evaluations/vol0.5_conditional_lambda0.00000001.png)
 ![Lambda = 1e-4](./evaluations/vol0.5_conditional_lambda0.0001.png)
 ![Lambda = 1e-3](./evaluations/vol0.5_conditional_lambda0.001.png)

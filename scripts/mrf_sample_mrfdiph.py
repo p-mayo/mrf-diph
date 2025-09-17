@@ -1,12 +1,12 @@
 """
-Generate a large batch of image samples from a model and save them as a large
-numpy array. This can be used to produce samples for FID evaluation..
+Script to sample using pre-trained diffusion model. This code has been adapted from original source
+https://github.com/openai/guided-diffusion/blob/main/scripts/image_sample.py
+
+@author: PM
 """
 import os
 import gc
-import mat73
 import torch
-import pickle
 import datetime
 import argparse
 import numpy as np
@@ -24,21 +24,7 @@ from guided_diffusion.script_util import (
 
 from mrf_processing.utils_dm_exact import dict_match
 from mrf_processing.utils_acquisition2d import NUFFT_Pytorch, load_traj_basis_dcf_2dscans
-
-
-def mr_signal(x):
-    return torch.zeros_like(x)
-
-def get_nrmse(ref, test):
-    return torch.norm(ref-test)/torch.norm(ref)
-
-def get_mape(ref, test, mask = None):
-    error = torch.abs(ref-test)
-    if mask is not None:
-        valid_idxs = torch.nonzero(ref*mask, as_tuple=True)
-    else:
-        valid_idxs = torch.nonzero(torch.ones_like(ref), as_tuple = True)
-    return torch.mean(error[valid_idxs]/torch.abs(ref[valid_idxs]))
+from evaluations.experimental_results import get_nrmse, get_mape
 
 def save_metrics(file_path, results, all_rows, iterations):
     with open(file_path, 'w') as f:
@@ -51,7 +37,6 @@ def save_metrics(file_path, results, all_rows, iterations):
                 str_res += f'{results[k][i]},'
             f.write(str_res[:-1] + '\n')
             it = it - 1 if it > 1 else iterations
-
 
 def main():
     args = create_argparser().parse_args()
@@ -74,6 +59,7 @@ def main():
         model.convert_to_fp16()
     model.eval()
 
+    logger.log('creating dataset...')
     test_vols = [0, 11] if args.test_vols == '-1' else [int(x) for x in args.test_vols.split(',')]
     test_slices = range(30) if args.test_slices == '-1' else [int(x) for x in args.test_slices.split(',')]
     logger.log(f'test_vols: {test_vols}')
@@ -95,6 +81,7 @@ def main():
     # initialise proxp, forward and adjoint operators
     # for a given MRF dictionary & acquisition trajectory
     ##################################################################
+    logger.log("initializing proximal, forward and adjoint operators")
     acquisition='fisp'
     ktraj, dcf, basis, time_frames, num_samples, im_shape, dictionary_path = load_traj_basis_dcf_2dscans(acquisition,
                                                                                                      cut=args.cut)
@@ -111,18 +98,13 @@ def main():
     NUFFT = NUFFT_Pytorch(im_shape, ktraj, basis, dcf=dcf, device=dist_util.dev(), lib_nufft=lib_nufft)
     proxf = NUFFT.proxf
 
-    logger.log("sampling...")
-    all_images = []
-    all_xtildas = []
-    all_xhats = []
-    all_zs = []
-
     sample_fn = (
         diffusion.p_sample if not args.use_ddim else diffusion.ddim_sample
     )
 
     # Variables for ADMM
-    xi = args.xi # 1.
+    logger.log("setting variables for ADMM ...")
+    xi = args.xi
     lmbda = args.lmbda
 
     if args.sigma_level == -1:
@@ -139,7 +121,7 @@ def main():
     sigmas = sqrt_one_minus_alpha_bar / sqrt_alpha_bar
     mus = lmbda / (sigmas ** 2)
 
-    if args.gamma_fixed: # 1e-6
+    if args.gamma_fixed:
         gamma = [args.gamma] * len(mus)
     else:
         gamma = args.gamma * mus
@@ -148,6 +130,7 @@ def main():
     logger.log('lambda:', lmbda)
 
     # Setting up Dictionary Matching (DM)
+    logger.log("setting up dictionary matching (DM)...")
     param = {'dir':{'dict':dictionary_path},
              'dim':{'tsmi_shape': (5,230,230)},
              'gdm':{'ngroups':100, 'corr_cutoff':0.99, 'nbatch':10}}
@@ -175,6 +158,15 @@ def main():
     prox_times =[]
     dm_times = []
     iter_times = []
+
+    all_xts = []
+    all_xtildas = []
+    all_xhats = []
+    all_zs = []
+    all_qmaps = []
+
+    logger.log("sampling...")
+
     with torch.no_grad():
         for vol in test_vols:
             for slce in test_slices:
@@ -368,10 +360,11 @@ def main():
                 logger.log('Total dm time:', np.sum(dm_times), f'{np.sum(dm_times)*100/step_times:.2f}')
 
                 all_zs.extend([z_t.cpu().numpy()])
-                all_images.extend([x_t.cpu().numpy()])
+                all_xts.extend([x_t.cpu().numpy()])
                 all_xtildas.extend([x_0_tilda.cpu().numpy()])
                 all_xhats.extend([x_0_hat.cpu().numpy()])
-                logger.log(f"created {len(all_images) * args.batch_size} samples")
+                all_qmaps.extend([q_hat.unsqueeze(0).cpu().numpy()])
+                logger.log(f"created {len(all_xts) * args.batch_size} samples")
 
     if args.report:
         dict_res = {'vol': all_vols,
@@ -392,17 +385,16 @@ def main():
         save_metrics(os.path.join(logger.get_dir(), 'log_res.csv'), dict_res,
                      diffusion.num_timesteps * len(test_vols) * len(test_slices),
                      diffusion.num_timesteps)
-    arr = np.concatenate(all_images, axis=0)
+    x_t_arr = np.concatenate(all_xts, axis=0)
     zs_arr = np.concatenate(all_zs, axis=0)
     xtilda_arr = np.concatenate(all_xtildas, axis=0)
     xhat_arr = np.concatenate(all_xhats, axis=0)
-
-    shape_str = 'x'.join([str(x) for x in arr.shape])
+    qmaps_arr = np.concatenate(all_qmaps, axis=0)
+    shape_str = 'x'.join([str(x) for x in x_t_arr.shape])
     out_path = os.path.join(logger.get_dir(), f"samples_{args.model_path.split('/')[-1][:-3]}_{shape_str}.npz")
     logger.log(f'saving to {out_path}')
-    np.savez(out_path, x_t=arr, z_t=zs_arr, x_tilda=xtilda_arr, x_hat=xhat_arr)
+    np.savez(out_path, x_t=x_t_arr, z_t=zs_arr, x_tilda=xtilda_arr, x_hat=xhat_arr, qmaps=qmaps_arr)
     logger.log('sampling complete')
-
 
 def create_argparser():
     defaults = dict(
