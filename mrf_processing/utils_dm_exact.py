@@ -7,8 +7,7 @@ class dict_match:
         """
             This class sets up dictionary matching as follows:
             1) Load SVD MRF dictionary.
-            2) Builds a MRIsynth dictionary.
-            3) As an output, builds the function prox.dm, a joint MRF-MRIsynth dictionary matching, based steps 1&2.
+            2) Output builds the function prox.dm, MRF dictionary matching.
             """
         # Load SVD MRF dictionary
         with torch.no_grad():
@@ -25,8 +24,8 @@ class dict_match:
             dict['D'] = dict['D'][:, :param['dim']['tsmi_shape'][0]]
             self.Dm = (dict['D'] * dict['normD']).to(device)  # un-normalised svd-mrf dict
             self.Dnorm = torch.sqrt((torch.abs(self.Dm)**2).sum(dim=1))
-            self.Dm /= self.Dnorm.unsqueeze(1)
-            self.lut = dict['lut'].to(device)
+            self.Dm /= self.Dnorm.unsqueeze(1) #Normalised dictionary atoms/fingerprints
+            self.lut = dict['lut'].to(device)  #Look-up table from MRF dictionary
 
             self.nblocks = param['gdm']['nbatch']
             self.device = device
