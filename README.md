@@ -1,4 +1,4 @@
-# Phisics informed guided diffusion for accelerated multi-parametric MRI reconstruction
+# MRF-Diph: Phisics informed guided diffusion for accelerated multi-parametric MRI reconstruction
 _By Perla Mayo, Carolin M. Pirkl, Alin Achim, Bjoern Menze and Mohammad Golbabaee_
 
 This repository contains the source code for the work titled
